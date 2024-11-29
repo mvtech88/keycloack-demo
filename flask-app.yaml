@@ -1,0 +1,117 @@
+# Kubernetes Deployment, Service, ConfigMap, and Secrets for Flask Application
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-app-config
+  namespace: default
+data:
+  KEYCLOAK_SERVER_METADATA_URL: "https://keycloak.local/realms/flask-realm/.well-known/openid-configuration"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: flask-app-secrets
+  namespace: default
+type: Opaque
+data:
+  FLASK_SECRET_KEY: "dGZNRXFHak1kbWVvYnlyb0lXS1UxNUxnU2hyTnd3QVo=" # base64 encoded value of your_flask_secret_key
+  KEYCLOAK_CLIENT_ID: "Zmxhc2stYXBw" # base64 encoded value of your_keycloak_client_id
+  KEYCLOAK_CLIENT_SECRET: "b0R6MW11dUJsOGo1SGdlNkJXUDZWZkNnUXNHR1ZtQ0I=" # base64 encoded value of your_keycloak_client_secret
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: docker-registry-secret
+  namespace: default
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: "" # base64 encoded value of your Docker credentials
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app-deployment
+  labels:
+    app: flask-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+      - name: flask-app
+        image: mohitverma1688/keyclockflask:v0.1 
+        ports:
+        - containerPort: 5000
+        env:
+        - name: FLASK_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: flask-app-secrets
+              key: FLASK_SECRET_KEY
+        - name: KEYCLOAK_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: flask-app-secrets
+              key: KEYCLOAK_CLIENT_ID
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: flask-app-secrets
+              key: KEYCLOAK_CLIENT_SECRET
+        - name: KEYCLOAK_SERVER_METADATA_URL
+          valueFrom:
+            configMapKeyRef:
+              name: flask-app-config
+              key: KEYCLOAK_SERVER_METADATA_URL
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "156Mi"
+            cpu: "200m"
+      imagePullSecrets:
+      - name: docker-registry-secret        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app-service
+  labels:
+    app: flask-app
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 5000
+  selector:
+    app: flask-app
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flask-app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: flask-app.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: flask-app-service
+            port:
+              number: 80
+
